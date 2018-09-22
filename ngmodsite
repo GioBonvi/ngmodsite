@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+
+import argparse
+import collections
+import os
+import os.path
+import sys
+
+class Conf:
+  """
+  A virtual host configuration in Nginx.
+
+  Every configuration has an hostname, a path to the 'sites-available' file and
+  a path to the 'sites-enabled' folder.
+  Files in the 'sites-available' folder follow this structure:
+    /domain.com.conf: domain.com
+    /domain.com/sub.conf: sub.domain.com
+    /domain.com/sub/sub.conf: sub.sub.domain.com
+  Files in the 'sites-enabled' folder are symlinks to the 'sites-available'
+  files and follow this structure:
+    /domain.com.conf: domain.com
+    /sub.domain.com.conf: sub.domain.com
+    /sub.sub.domain.com.conf: sub.sub.domain.com
+  """
+
+  NGINX_PATH = "/etc/nginx"
+  SITES_AVAIL_PATH = os.path.join(NGINX_PATH, "sites-available")
+  SITES_EN_PATH = os.path.join(NGINX_PATH, "sites-enabled")
+
+  def __init__(self, avail_path):
+    """
+    Every Conf object is initialized from the path to the 'sites-available' conf
+    file: all the other data is extracted from this.
+    """
+    # Path relative to SITES_AVAIL_PATH.
+    self.avail_relpath = os.path.relpath(avail_path, Conf.SITES_AVAIL_PATH)
+    self.hostname = Conf.hostname_from_avail_relpath(self.avail_relpath)
+    # Path relative to SITES_AVAIL_PATH.
+    self.en_relpath = Conf.en_relpath_from_hostname(self.hostname)
+
+  def is_enabled(self):
+    return os.path.exists(os.path.join(Conf.SITES_EN_PATH, self.en_relpath))
+
+  def get_avail_path(self):
+    # Absolute path.
+    return os.path.join(Conf.SITES_AVAIL_PATH, self.avail_relpath)
+  
+  def get_en_path(self):
+    # Absolute path.
+    return os.path.join(Conf.SITES_EN_PATH, self.en_relpath)
+
+  def __str__(self):
+     return self.hostname
+
+  def __eq__(self, other):
+    return isinstance(other, self.__class__) and self.hostname == other.hostname
+  
+  def __ne__(self, other):
+    return not self.__eq__(other)
+  
+  def __hash__(self):
+    return hash(self.hostname)
+  
+  @staticmethod
+  def hostname_from_avail_relpath (path):
+    # Split the path, remove the ".conf" extension and reverse the order to
+    # get the hostname.
+    return ".".join(reversed(
+      os.path.normpath(os.path.splitext(path)[0]).split(os.path.sep)
+    ))
+
+  @staticmethod
+  def en_relpath_from_hostname (hostname):
+    # Just add the ".conf" extension to the hostname.
+    return hostname + ".conf"
+
+# Command line arguments.
+parser = argparse.ArgumentParser(description="A program to enable and disable virtual hosts configurations in Nginx.")
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument("-l", "--list", dest="action", action="store_const", const="list", help="List enabled and disabled configurations")
+group.add_argument("-e", "--enable", dest="action", action="store_const", const="enable", help="Enable a configuration")
+group.add_argument("-d", "--disable", dest="action", action="store_const", const="disable", help="Disable a configuration")
+parser.add_argument("hostname", nargs="?", default="", help="The hostname on which to operate. If not set every hostname is listed.")
+args = parser.parse_args()
+
+configs = {}
+configs_en = []
+configs_dis = []
+
+# Get all the available configurations.
+for root, dirs, files in os.walk(Conf.SITES_AVAIL_PATH):
+  for file in files:
+    conf = Conf(os.path.join(root, file))
+    configs[conf.hostname] = conf
+    if conf.is_enabled():
+      configs_en.append(conf.hostname)
+    else:
+      configs_dis.append(conf.hostname)
+
+status = None
+error = None
+if args.action == "list":
+  if args.hostname == "":
+    print("Disabled sites:")
+    print("  " + "\n  ".join(configs_dis))
+    print()
+    print("Enabled sites:")
+    print("  " + "\n  ".join(configs_en))
+  else:
+    if args.hostname in configs_en:
+      status = "is enabled"
+    elif args.hostname in configs_dis:
+      status = "is disabled"
+    else:
+      status = "does not exist"
+    print("The site '%s' %s." % (args.hostname, status))
+elif args.action == "enable":
+  if args.hostname == "":
+    print("Disabled sites:")
+    print("  " + "\n  ".join(configs_dis))
+  else:
+    if args.hostname in configs_dis:
+      try:
+        os.symlink(configs[args.hostname].get_avail_path(), configs[args.hostname].get_en_path())
+        status = "has been enabled"
+      except PermissionError:
+        status = "could not be enabled"
+        error = "You are not authorized to perform this action. Try running this command as sudo"
+      except Exception as e:
+        status = "could not be enabled"
+        error = str(e)
+    elif args.hostname in configs_en:
+      status = "is already enabled"
+    else:
+      status = "does not exist"
+    print("The site '%s' %s." % (args.hostname, status))
+    if error:
+      print("Error: %s." % error, file=sys.stderr)
+elif args.action == "disable":
+  if args.hostname == "":
+    print("Enabled sites:")
+    print("  " + "\n  ".join(configs_en))
+  else:
+    if args.hostname in configs_en:
+      try:
+        os.remove(configs[args.hostname].get_en_path())
+        status = "has been disabled"
+      except PermissionError:
+        status = "could not be disabled"
+        error = "You are not authorized to perform this action. Try running this command as sudo"
+      except Exception as e:
+        status = "could not be disabled"
+        error = str(e)
+    elif args.hostname in configs_dis:
+      status = "is not enabled"
+    else:
+      status = "does not exist"
+    print("The site '%s' %s." % (args.hostname, status))
+    if error:
+      print("Error: %s." % error, file=sys.stderr)
