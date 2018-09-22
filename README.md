@@ -64,4 +64,15 @@ some limitations: feel free to adapt it to your needs.
 
 `ngmodsite` is published under the [MIT license][License link].
 
+## Credits
+
+The name of the script comes from [this answer][ServerFault answer] by Ghassen
+Telmoudi to [this ServerFault question][ServerFault question] which I found
+while googling for a nginx equivalent to `a2ensite`.  
+I used his script for a while, then decided to change it adapting it to my
+personal requirements and while the script was completely rewritten (in fact I
+even switched from Bash to Python) the name stayed the same.
+
 [License link]: https://github.com/GioBonvi/ngmodsite.git
+[ServerFault question]: https://serverfault.com/questions/424452/nginx-enable-site-command
+[ServerFault answer]: https://serverfault.com/a/562210
